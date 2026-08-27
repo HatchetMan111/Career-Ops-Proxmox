@@ -20,9 +20,15 @@ keine geteilte Infrastruktur, keine fremden Bewerbungsdaten auf deinem Server.
   Deutsch-Ausgaben und komplexem Reasoning oft merklich schwächer als Claude/GPT-Klasse. OpenCode
   verlangt laut eigener Doku ein Kontextfenster von 64k+ — viele kleine Modell-Tags liegen darunter.
   Teste selbst, bevor du dich darauf verlässt.
-- **Web-UI ist experimentell.** Die native career-ops-Web-UI war zum Zeitpunkt dieses Installers laut
-  Roadmap ein Release Candidate. Der Installer versucht, sie automatisch zu erkennen und zu starten;
-  falls das fehlschlägt, nutzt du career-ops einfach über die CLI (`opencode .` im Projektordner).
+- **Web-UI ist experimentell.** Die native career-ops-Web-UI (`web/`, Next.js) ist laut Upstream
+  selbst als *alpha* markiert und verlangt **Node ≥ 22**. Der Installer erkennt sie am Vorhandensein
+  von `web/package.json`, baut sie (`npm run build`) und startet sie produktiv
+  (`next start -H 0.0.0.0 -p 3000`) als systemd-Service. Falls im geklonten Stand kein `web/`
+  existiert, überspringt der Installer das sauber und du nutzt career-ops über die CLI.
+- **Kein Pin auf Git-Tags.** Bei career-ops hinken die Release-Tags main deutlich hinterher
+  (z. B. Tag `v1.6.0`, während `main` bereits bei `1.29.0` war — die Web-UI existierte im letzten
+  Tag schlicht noch nicht). Der Installer klont deshalb `main` und schreibt die exakte Commit-SHA
+  nach `.installed_commit` — für Reproduzierbarkeit setze bei Bedarf `COMMIT=<sha>`.
 - **Kein echter Deploy-Test in dieser Umgebung.** Die Skripte sind syntaktisch geprüft
   (`bash -n`, ShellCheck, keine Warnungen), aber **nicht** auf einem echten Proxmox-Host installiert
   und rebootet worden — dafür fehlt hier ein echter PVE-Host. Bitte selbst in einer Testumgebung
@@ -72,16 +78,18 @@ nano portals.yml
 ollama pull qwen2.5-coder:14b
 ```
 
-Web-UI (falls vom Installer gefunden): `http://<Container-IP>:3210`
+Web-UI (falls vom Installer gefunden — Next.js, alpha): `http://<Container-IP>:3000`
 IP herausfinden: `pct exec <CTID> -- hostname -I`
 
 ## Update
 
 Kein automatisches Update-Skript enthalten (bewusst — career-ops entwickelt sich schnell,
-ein stiller Auto-Pull auf `main` kann deine Konfiguration/Modes brechen). Manuelles Update:
+ein stiller Auto-Pull kann deine Konfiguration/Modes brechen). Manuelles Update auf den
+aktuellen `main`-Stand:
 
 ```bash
-pct exec <CTID> -- bash -c "cd /opt/career-ops && git fetch --tags && git checkout \$(git tag -l 'v*' --sort=-v:refname | head -1) && npm ci --omit=dev"
+pct exec <CTID> -- bash -c "cd /opt/career-ops && git fetch origin main && git checkout origin/main -- . && git rev-parse HEAD > .installed_commit && npm ci --omit=dev"
+pct exec <CTID> -- bash -c "cd /opt/career-ops/web && npm ci && npm run build" 2>/dev/null || true
 pct exec <CTID> -- systemctl restart career-ops-web 2>/dev/null || true
 ```
 

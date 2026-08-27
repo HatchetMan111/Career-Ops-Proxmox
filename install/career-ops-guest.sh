@@ -9,7 +9,7 @@ set -euo pipefail
 REPO_URL="${REPO_URL:-https://github.com/santifer/career-ops.git}"
 WITH_OLLAMA="${WITH_OLLAMA:-yes}"
 INSTALL_DIR="/opt/career-ops"
-NODE_MAJOR="20"
+NODE_MAJOR="22"
 WEB_PORT_FILE="/root/.career-ops-web-port"
 
 msg_info()  { echo -e "\e[36m[GUEST INFO]\e[0m  $*"; }
@@ -60,18 +60,23 @@ rm -rf "$INSTALL_DIR"
 git clone --depth 1 "$REPO_URL" "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
-# Versuche, auf das neueste Release zu pinnen statt auf einen bewegten main-Branch
-LATEST_TAG=$(git ls-remote --tags --refs "$REPO_URL" \
-  | awk -F/ '{print $NF}' \
-  | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' \
-  | sort -V | tail -n1 || true)
-if [[ -n "$LATEST_TAG" ]]; then
-  msg_info "Pinne auf Release $LATEST_TAG…"
-  git fetch --depth 1 origin "refs/tags/${LATEST_TAG}:refs/tags/${LATEST_TAG}" 2>/dev/null || true
-  git checkout "$LATEST_TAG" 2>/dev/null || msg_info "Konnte Tag nicht auschecken, bleibe auf main."
-else
-  msg_info "Kein Versions-Tag gefunden, bleibe auf main (weniger reproduzierbar — für Updates: erneut ausführen)."
+# HINWEIS: Wir pinnen bewusst NICHT auf den letzten Git-Tag mehr.
+# Bei career-ops hängen die Tags weit hinter main zurück (z.B. Tag v1.6.0,
+# während main schon bei 1.29.0 war) — ein Pin auf den letzten Tag hätte in
+# der Praxis Monate alten Code ohne die Web-UI ausgeliefert. Stattdessen
+# tracken wir main und schreiben die exakte Commit-SHA mit, damit du bei
+# Bedarf reproduzierbar auf genau diesen Stand zurück kannst.
+#
+# Optional: COMMIT=<sha> vor dem Aufruf setzen, um einen bestimmten Commit
+# zu erzwingen (z.B. für ein späteres, geprüftes Update).
+if [[ -n "${COMMIT:-}" ]]; then
+  msg_info "Checke expliziten Commit aus: $COMMIT"
+  git fetch --depth 1 origin "$COMMIT"
+  git checkout "$COMMIT"
 fi
+INSTALLED_COMMIT=$(git rev-parse HEAD)
+echo "$INSTALLED_COMMIT" > .installed_commit
+msg_ok "Installierter Commit: $INSTALLED_COMMIT (main, ungetaggt — siehe Hinweis oben)"
 
 msg_info "Installiere npm-Abhängigkeiten…"
 npm ci --omit=dev 2>/dev/null || npm install --omit=dev
@@ -124,20 +129,15 @@ EOF
 fi
 
 # ---------------------------------------------------------------------------
-msg_info "Suche nach einer nativen Web-UI im Repo (Stand: laut Roadmap Release Candidate)…"
-WEB_SCRIPT=""
-if [[ -f package.json ]] && command -v node >/dev/null; then
-  WEB_SCRIPT=$(node -e "
-    const p = require('./package.json');
-    const s = p.scripts || {};
-    const hit = Object.keys(s).find(k => /web/i.test(k) && !/dashboard/i.test(k));
-    process.stdout.write(hit || '');
-  " 2>/dev/null || true)
-fi
-
-if [[ -n "$WEB_SCRIPT" ]]; then
-  msg_ok "Gefundenes Web-UI-Skript: npm run $WEB_SCRIPT"
-  WEB_PORT=3210
+msg_info "Prüfe auf offizielle Web-UI (web/package.json, benötigt Node >=22)…"
+WEB_PORT=3000
+if [[ -f web/package.json ]]; then
+  msg_ok "web/ gefunden — baue Next.js-Production-Build (das kann etwas dauern)…"
+  (
+    cd web
+    npm ci
+    npm run build
+  )
   echo "$WEB_PORT" > "$WEB_PORT_FILE"
 
   cat > /etc/systemd/system/career-ops-web.service <<EOF
@@ -148,10 +148,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=${INSTALL_DIR}
-Environment=PORT=${WEB_PORT}
-Environment=HOST=0.0.0.0
-ExecStart=/usr/bin/npm run ${WEB_SCRIPT}
+WorkingDirectory=${INSTALL_DIR}/web
+Environment=CAREER_OPS_ROOT=${INSTALL_DIR}
+ExecStart=/usr/bin/npx next start -H 0.0.0.0 -p ${WEB_PORT}
 Restart=always
 RestartSec=5
 
@@ -160,13 +159,11 @@ WantedBy=multi-user.target
 EOF
   systemctl daemon-reload
   systemctl enable --now career-ops-web
-  msg_info "career-ops-web gestartet. ANNAHME: die App liest den PORT aus der Umgebungsvariable PORT."
-  msg_info "Falls das nicht stimmt (Port hart codiert), prüfe web/README.md im Repo und passe die systemd-Unit an:"
-  msg_info "  /etc/systemd/system/career-ops-web.service"
+  msg_ok "career-ops-web gestartet: Next.js Production-Build, Port ${WEB_PORT}, Bind 0.0.0.0."
+  msg_info "Die Web-UI ist laut Upstream 'alpha' — sie liest/schreibt dieselben Dateien wie die CLI, kein eigener Server-State."
 else
-  msg_info "Keine Web-UI im aktuellen Checkout gefunden (2.0-Web-UI ist laut Upstream-Roadmap noch RC/nicht überall released)."
-  msg_info "Kein Problem — career-ops wird ohnehin primär über die AI-CLI bedient:"
-  msg_info "  cd ${INSTALL_DIR} && opencode ."
+  msg_info "Kein web/-Verzeichnis in diesem Checkout gefunden — Web-UI wird übersprungen."
+  msg_info "career-ops wird primär über die AI-CLI bedient: cd ${INSTALL_DIR} && opencode ."
   rm -f "$WEB_PORT_FILE"
 fi
 

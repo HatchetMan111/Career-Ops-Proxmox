@@ -1,7 +1,6 @@
 # Referenz-Template. Wird von career-ops-guest.sh automatisch nach
 # /etc/systemd/system/career-ops-web.service geschrieben — NUR wenn im
-# geklonten Repo ein passendes Web-UI-npm-Skript gefunden wird.
-# Platzhalter wie {{WEB_SCRIPT}} werden zur Installationszeit ersetzt.
+# geklonten Repo ein web/package.json existiert (offizielle Next.js-Web-UI).
 #
 # Diese Datei liegt hier ausschließlich zur Nachvollziehbarkeit im Repo
 # ("GitHub-first") — sie wird selbst nicht direkt eingebunden.
@@ -13,10 +12,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/career-ops
-Environment=PORT={{WEB_PORT}}
-Environment=HOST=0.0.0.0
-ExecStart=/usr/bin/npm run {{WEB_SCRIPT}}
+WorkingDirectory=/opt/career-ops/web
+Environment=CAREER_OPS_ROOT=/opt/career-ops
+ExecStart=/usr/bin/npx next start -H 0.0.0.0 -p 3000
 Restart=always
 RestartSec=5
 

@@ -88,11 +88,14 @@ require_pve() {
   fi
 }
 
-pick_ctid() {
+resolve_ctid_default() {
   if [[ -z "$CTID" ]]; then
     CTID=$(pvesh get /cluster/nextid)
-    msg_info "Keine CTID gesetzt, nutze nächste freie ID: $CTID"
+    msg_info "Keine CTID via ENV gesetzt, schlage nächste freie ID vor: $CTID"
   fi
+}
+
+validate_ctid() {
   if pct status "$CTID" &>/dev/null; then
     msg_err "CTID $CTID existiert bereits. Setze CTID=<freie-id> und starte erneut."
     exit 1
@@ -120,6 +123,9 @@ interactive_overrides() {
   [[ "$NONINTERACTIVE" == "1" ]] && return 0
   command -v whiptail >/dev/null 2>&1 || { msg_info "whiptail nicht verfügbar, nutze Defaults/ENV-Werte."; return 0; }
 
+  # CTID/HOSTNAME_/CORES/RAM_MB/DISK_GB sind an dieser Stelle bereits mit
+  # sinnvollen Defaults belegt (siehe resolve_ctid_default + Top-Level ENV
+  # Defaults) — die Dialoge zeigen diese Werte vorausgefüllt statt leer.
   CTID=$(whiptail --inputbox "Container-ID" 8 58 "$CTID" --title "$APP Setup" 3>&1 1>&2 2>&3) || exit 1
   HOSTNAME_=$(whiptail --inputbox "Hostname" 8 58 "$HOSTNAME_" --title "$APP Setup" 3>&1 1>&2 2>&3) || exit 1
   CORES=$(whiptail --inputbox "vCPUs" 8 58 "$CORES" --title "$APP Setup" 3>&1 1>&2 2>&3) || exit 1
@@ -249,8 +255,9 @@ print_summary() {
 main() {
   require_root
   require_pve
+  resolve_ctid_default
   interactive_overrides
-  pick_ctid
+  validate_ctid
   warn_resources
   ensure_template
   create_container
