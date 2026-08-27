@@ -1,0 +1,24 @@
+# Referenz-Template. Wird von career-ops-guest.sh automatisch nach
+# /etc/systemd/system/career-ops-web.service geschrieben — NUR wenn im
+# geklonten Repo ein passendes Web-UI-npm-Skript gefunden wird.
+# Platzhalter wie {{WEB_SCRIPT}} werden zur Installationszeit ersetzt.
+#
+# Diese Datei liegt hier ausschließlich zur Nachvollziehbarkeit im Repo
+# ("GitHub-first") — sie wird selbst nicht direkt eingebunden.
+
+[Unit]
+Description=career-ops Web UI (opt-in, alpha upstream feature)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/career-ops
+Environment=PORT={{WEB_PORT}}
+Environment=HOST=0.0.0.0
+ExecStart=/usr/bin/npm run {{WEB_SCRIPT}}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
